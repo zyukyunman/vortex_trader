@@ -1,0 +1,35 @@
+%% Vortex 量化平台 · 部署拓扑与镜像继承链
+%% 在支持 Mermaid 的查看器中渲染；亦同步嵌入 design/03-镜像与部署.md
+flowchart LR
+  P311["python:3.11-slim"]
+  P312["python:3.12-slim"]
+  BASE["vortex-data-base:latest<br/>公共依赖底座"]
+  DImg["vortex-data:latest"]
+  QImg["vortex-qmt:latest<br/>+fastapi/uvicorn +bridge client"]
+  BImg["vortex-backtest:latest<br/>独立底座（注意 3.12）"]
+
+  P311 --> BASE
+  BASE --> DImg
+  BASE --> QImg
+  P312 --> BImg
+
+  subgraph HOST["Linux / Mac 宿主机 · vortex run"]
+    DC["vortex-data<br/>127.0.0.1:8765"]
+    BC["vortex-backtest<br/>127.0.0.1:8766"]
+    QC["vortex-qmt<br/>127.0.0.1:8767"]
+    VOL["workspace<br/>data + qlib"]
+    ST["state<br/>账本/执行工件"]
+  end
+
+  DImg -. 镜像 .-> DC
+  BImg -. 镜像 .-> BC
+  QImg -. 镜像 .-> QC
+  DC ---|"rw"| VOL
+  BC -->|"ro 只读挂载"| VOL
+  QC ---|"rw"| ST
+
+  subgraph WINHOST["Windows 主机 / 虚拟机（内网/VPN）"]
+    WBridge["qmt-bridge :8000"]
+    WQMT["miniQMT 登录态"]
+  end
+  QC -->|"host.docker.internal:8000"| WBridge --> WQMT

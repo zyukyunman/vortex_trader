@@ -1,0 +1,51 @@
+%% Vortex 量化平台 · 端到端架构（data → backtest → trader → qmt）
+%% 在支持 Mermaid 的查看器中渲染；亦同步嵌入 design/01-端到端架构.md
+flowchart TB
+  TS["Tushare Pro API"]
+
+  subgraph DATA["vortex_data 数据服务 · 8765"]
+    direction TB
+    DFetch["采集管线 pipeline<br/>缺失规划·质量门禁·快照发布"]
+    DStore["Parquet 落盘<br/>workspace/data"]
+    DQlib["Qlib 导出<br/>workspace/qlib · cn_day / cn_1min"]
+    DDash["HTTP API /api/*<br/>看板·查询"]
+  end
+
+  subgraph BT["vortex_backtest 回测引擎 · 8766"]
+    direction TB
+    BData["data_adapter<br/>读 parquet / qlib"]
+    BEngine["撮合引擎<br/>A股规则 T+1·分板手数·涨跌停·费用"]
+    BJob["异步作业 worker + store<br/>job_id 轮询"]
+    BAPI["HTTP API<br/>/backtests · /accounts"]
+  end
+
+  subgraph TRADER["★ vortex_trader 研究院 · 编排（本库）"]
+    direction TB
+    TLoop["研究闭环<br/>假设→取数→回测→评估"]
+    TBridge["策略→目标组合<br/>编排桥（待建）"]
+  end
+
+  subgraph QMT["vortex_qmt 实盘交易 · 8767"]
+    direction TB
+    QAPI["HTTP API<br/>/rebalance · /orders"]
+    QPlan["目标组合 → 订单计划<br/>先卖后买·幂等 exec_id"]
+    QRisk["fail-closed 风控<br/>12 条规则"]
+    QExec["执行 → 对账 reconcile<br/>工件+血统落盘"]
+  end
+
+  subgraph WIN["Windows 主机 / 虚拟机"]
+    QBridge["qmt-bridge<br/>FastAPI + xtquant :8000"]
+    MiniQMT["国金 miniQMT 登录态"]
+  end
+
+  TS --> DFetch --> DStore --> DQlib
+  DFetch --- DDash
+  DQlib -->|"qlib FileStorage 契约"| BData
+  DStore -->|"parquet 只读挂载 :ro"| BData
+  BData --> BEngine --> BJob --- BAPI
+  BAPI -->|"回测/策略结果"| TLoop
+  TLoop --> TBridge
+  TBridge -->|"POST /rebalance 目标组合"| QAPI
+  QAPI --> QPlan --> QRisk --> QExec
+  DDash -->|"HTTP 取数 涨跌停/复权"| QExec
+  QExec -->|"QMTClient HTTP"| QBridge --> MiniQMT
